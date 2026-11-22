@@ -74,7 +74,7 @@ To simulate a supplier outage with Docker Compose, set `SUPPLIER_A_ENABLED=false
 
 ## Postman
 
-Import [`postman/Hotel-Offer-Orchestrator.postman_collection.json`](postman/Hotel-Offer-Orchestrator.postman_collection.json). It includes live health detection, an outage-aware refresh request, cached city results, price filtering, a no-results city, both supplier endpoints, and input validation. The health request stores supplier status for later assertions, so the collection covers normal operation and a single supplier outage without changing its requests.
+Import [`postman/Hotel-Offer-Orchestrator.postman_collection.json`](postman/Hotel-Offer-Orchestrator.postman_collection.json). Run the collection from top to bottom so the Health request can set the supplier-status variables used by later assertions. It includes live health detection, an outage-aware refresh request, cached city results, price filtering, a no-results city, both supplier endpoints, and input validation, covering normal operation and a single supplier outage without changing its requests.
 
 ## Configuration
 
