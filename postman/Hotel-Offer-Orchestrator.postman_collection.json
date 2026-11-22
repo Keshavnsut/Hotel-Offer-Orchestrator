@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Hotel Offer Orchestrator",
-    "description": "Requests for supplier mocks, Temporal-backed offer aggregation, Redis price filtering, and health status.",
+    "description": "Requests and assertions for supplier mocks, Temporal-backed offer aggregation, Redis price filtering, validation, and health status.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -14,7 +14,31 @@
         "method": "GET",
         "header": [],
         "url": "{{baseUrl}}/api/hotels?city=delhi"
-      }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns HTTP 200', function () { pm.response.to.have.status(200); });",
+              "const offers = pm.response.json();",
+              "pm.test('returns unique hotels and the cheapest supplier offer', function () {",
+              "  pm.expect(offers).to.be.an('array').that.is.not.empty;",
+              "  const names = offers.map((offer) => offer.name.trim().toLowerCase().replace(/\\s+/g, ' '));",
+              "  pm.expect(new Set(names).size).to.eql(names.length);",
+              "  const holtin = offers.find((offer) => offer.name.toLowerCase() === 'holtin');",
+              "  const radison = offers.find((offer) => offer.name.toLowerCase() === 'radison');",
+              "  pm.expect(holtin).to.include({ price: 5340, supplier: 'Supplier B' });",
+              "  pm.expect(radison).to.include({ price: 5900, supplier: 'Supplier A' });",
+              "});",
+              "pm.test('uses the documented response fields', function () {",
+              "  offers.forEach((offer) => pm.expect(offer).to.have.all.keys('name', 'price', 'supplier', 'commissionPct'));",
+              "});"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "Filter Delhi offers by price",
@@ -22,7 +46,23 @@
         "method": "GET",
         "header": [],
         "url": "{{baseUrl}}/api/hotels?city=delhi&minPrice=5000&maxPrice=9000"
-      }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns HTTP 200', function () { pm.response.to.have.status(200); });",
+              "const offers = pm.response.json();",
+              "pm.test('returns only offers inside the inclusive price range', function () {",
+              "  pm.expect(offers.map((offer) => offer.name)).to.eql(['Holtin', 'Radison']);",
+              "  offers.forEach((offer) => pm.expect(offer.price).to.be.within(5000, 9000));",
+              "});"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "City with no results",
@@ -30,7 +70,21 @@
         "method": "GET",
         "header": [],
         "url": "{{baseUrl}}/api/hotels?city=atlantis"
-      }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns HTTP 200', function () { pm.response.to.have.status(200); });",
+              "pm.test('returns an empty array when suppliers have no offers', function () {",
+              "  pm.expect(pm.response.json()).to.eql([]);",
+              "});"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "Supplier A mock endpoint",
@@ -38,7 +92,25 @@
         "method": "GET",
         "header": [],
         "url": "{{baseUrl}}/supplierA/hotels?city=delhi"
-      }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns HTTP 200', function () { pm.response.to.have.status(200); });",
+              "const hotels = pm.response.json();",
+              "pm.test('returns Delhi hotel records including overlap names', function () {",
+              "  pm.expect(hotels).to.be.an('array').that.is.not.empty;",
+              "  const names = hotels.map((hotel) => hotel.name);",
+              "  pm.expect(names).to.include('Holtin');",
+              "  pm.expect(names).to.include('Radison');",
+              "});"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "Supplier B mock endpoint",
@@ -46,7 +118,25 @@
         "method": "GET",
         "header": [],
         "url": "{{baseUrl}}/supplierB/hotels?city=delhi"
-      }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns HTTP 200', function () { pm.response.to.have.status(200); });",
+              "const hotels = pm.response.json();",
+              "pm.test('returns Delhi hotel records including overlap names', function () {",
+              "  pm.expect(hotels).to.be.an('array').that.is.not.empty;",
+              "  const names = hotels.map((hotel) => hotel.name);",
+              "  pm.expect(names).to.include('Holtin');",
+              "  pm.expect(names).to.include('Radison');",
+              "});"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "Health",
@@ -54,7 +144,69 @@
         "method": "GET",
         "header": [],
         "url": "{{baseUrl}}/health"
-      }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns HTTP 200 when services are healthy', function () { pm.response.to.have.status(200); });",
+              "const health = pm.response.json();",
+              "pm.test('reports both suppliers and Redis as up', function () {",
+              "  pm.expect(health.status).to.eql('ok');",
+              "  pm.expect(health.suppliers.supplierA).to.eql('up');",
+              "  pm.expect(health.suppliers.supplierB).to.eql('up');",
+              "  pm.expect(health.redis).to.eql('up');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Missing city is rejected",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/hotels"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns HTTP 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('explains that city is required', function () {",
+              "  pm.expect(pm.response.json().error).to.include(\"'city' is required\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Invalid price range is rejected",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/hotels?city=delhi&minPrice=9000&maxPrice=5000"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns HTTP 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('explains that the minimum cannot exceed the maximum', function () {",
+              "  pm.expect(pm.response.json().error).to.include('minPrice must be less than or equal to maxPrice');",
+              "});"
+            ]
+          }
+        }
+      ]
     }
   ]
 }

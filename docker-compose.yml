@@ -11,7 +11,7 @@ services:
       retries: 20
 
   temporal:
-    image: temporalio/temporal:latest
+    image: temporalio/temporal:1.10.0@sha256:003508da05989e7cf0d583cfce521c4bb2732e733574e3040db8f1284783baa2
     command: ["server", "start-dev", "--ip", "0.0.0.0", "--port", "7233"]
     ports:
       - "7233:7233"

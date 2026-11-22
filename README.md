@@ -13,7 +13,7 @@ A TypeScript/Express API that requests offers from two mock hotel suppliers in p
 docker compose up --build
 ```
 
-The API is available at `http://localhost:3000`, and the Temporal development UI is at `http://localhost:8233`. The compose setup starts Redis, a Temporal development server, the API, and a separate Temporal worker. Temporal's development server is intended for local development; use a managed or production Temporal deployment for production workloads.
+The API is available at `http://localhost:3000`, and the Temporal development UI is at `http://localhost:8233`. The compose setup starts Redis, a Temporal development server, the API, and a separate Temporal worker. The Temporal CLI image is pinned to v1.10.0 by digest for repeatable local runs. Temporal's development server is intended for local development; use a managed or production Temporal deployment for production workloads.
 
 To stop the services, run `docker compose down`. Redis data is kept in the `redis-data` volume.
 
@@ -66,7 +66,7 @@ To simulate a supplier outage with Docker Compose, set `SUPPLIER_A_ENABLED=false
 
 ## Postman
 
-Import [`postman/Hotel-Offer-Orchestrator.postman_collection.json`](postman/Hotel-Offer-Orchestrator.postman_collection.json). It includes the valid city, price-filtered city, no-results city, both supplier endpoints, and health endpoint requests.
+Import [`postman/Hotel-Offer-Orchestrator.postman_collection.json`](postman/Hotel-Offer-Orchestrator.postman_collection.json). It includes the valid city, price-filtered city, no-results city, both supplier endpoints, health, and input-validation requests. Each request includes Postman assertions for its expected status and response shape.
 
 ## Configuration
 
