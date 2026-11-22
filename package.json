@@ -6,6 +6,7 @@
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/mergeOffers.test.ts",
     "start": "node dist/server.js",
     "start:worker": "node dist/worker.js",
     "dev": "tsx watch src/server.ts",

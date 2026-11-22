@@ -1,6 +1,7 @@
 import { ApplicationFailure, log, proxyActivities, workflowInfo } from "@temporalio/workflow";
 import type * as activities from "../activities";
-import type { CompareHotelsInput, HotelOffer, SupplierHotel } from "../types";
+import { mergeBestOffers } from "../mergeOffers";
+import type { CompareHotelsInput, HotelOffer } from "../types";
 
 const supplierActivities = proxyActivities<Pick<typeof activities, "fetchSupplierA" | "fetchSupplierB">>({
   startToCloseTimeout: "10 seconds",
@@ -24,26 +25,6 @@ const persistenceActivities = proxyActivities<Pick<typeof activities, "replaceAn
     maximumAttempts: 3,
   },
 });
-
-function mergeBestOffers(city: string, supplierA: SupplierHotel[], supplierB: SupplierHotel[]): HotelOffer[] {
-  const bestByName = new Map<string, HotelOffer>();
-
-  for (const [supplier, offers] of [["Supplier A", supplierA], ["Supplier B", supplierB]] as const) {
-    for (const offer of offers) {
-      const normalizedName = offer.name.trim().toLowerCase().replace(/\s+/g, " ");
-      const current = bestByName.get(normalizedName);
-      if (!current || offer.price < current.price) {
-        bestByName.set(normalizedName, {
-          ...offer,
-          city: offer.city || city,
-          supplier,
-        });
-      }
-    }
-  }
-
-  return [...bestByName.values()];
-}
 
 export async function compareHotelsWorkflow(input: CompareHotelsInput): Promise<HotelOffer[]> {
   log.info("Starting supplier comparison", { city: input.city });

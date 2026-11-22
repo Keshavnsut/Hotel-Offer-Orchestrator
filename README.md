@@ -32,7 +32,17 @@ The API is available at `http://localhost:3000`. The Temporal development UI is 
 
 Try the main endpoints:
 
+**macOS / Linux:**
+
 ```sh
+curl "http://localhost:3000/api/hotels?city=delhi"
+curl "http://localhost:3000/api/hotels?city=delhi&minPrice=5000&maxPrice=9000"
+curl "http://localhost:3000/health"
+```
+
+**Windows PowerShell:**
+
+```powershell
 curl.exe "http://localhost:3000/api/hotels?city=delhi"
 curl.exe "http://localhost:3000/api/hotels?city=delhi&minPrice=5000&maxPrice=9000"
 curl.exe "http://localhost:3000/health"
@@ -121,6 +131,12 @@ npm run start:worker
 ```
 
 For development, use `npm run dev` and `npm run dev:worker` in separate terminals. The defaults in `.env.example` point to services running on `localhost`.
+
+Run the merge-logic unit tests with:
+
+```sh
+npm test
+```
 
 ## Configuration
 
