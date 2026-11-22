@@ -1,0 +1,33 @@
+{
+  "name": "hotel-offer-orchestrator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Aggregate hotel offers with Temporal workflows and Redis price filtering.",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "start:worker": "node dist/worker.js",
+    "dev": "tsx watch src/server.ts",
+    "dev:worker": "tsx watch src/worker.ts"
+  },
+  "dependencies": {
+    "@temporalio/client": "^1.26.0",
+    "@temporalio/worker": "^1.26.0",
+    "@temporalio/workflow": "^1.26.0",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "pino": "^9.7.0",
+    "pino-http": "^10.5.0",
+    "redis": "^5.8.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.15.30",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
