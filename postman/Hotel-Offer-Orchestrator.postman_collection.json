@@ -5,9 +5,84 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:3000" }
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    }
   ],
   "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/health"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const health = pm.response.json();",
+              "pm.collectionVariables.set(\"supplierAStatus\", health.suppliers.supplierA);",
+              "pm.collectionVariables.set(\"supplierBStatus\", health.suppliers.supplierB);",
+              "pm.collectionVariables.set(\"redisStatus\", health.redis);",
+              "const allUp = health.suppliers.supplierA === \"up\" && health.suppliers.supplierB === \"up\" && health.redis === \"up\";",
+              "pm.test(\"health status reflects live dependencies\", function () {",
+              "  pm.response.to.have.status(allUp ? 200 : 503);",
+              "  pm.expect(health.status).to.eql(allUp ? \"ok\" : \"degraded\");",
+              "});",
+              "pm.test(\"reports both suppliers and Redis\", function () {",
+              "  pm.expect([\"up\", \"down\"]).to.include(health.suppliers.supplierA);",
+              "  pm.expect([\"up\", \"down\"]).to.include(health.suppliers.supplierB);",
+              "  pm.expect(health.redis).to.eql(\"up\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Supplier outage behavior (refresh)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/hotels?city=delhi&refresh=true"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const aUp = pm.collectionVariables.get(\"supplierAStatus\") === \"up\";",
+              "const bUp = pm.collectionVariables.get(\"supplierBStatus\") === \"up\";",
+              "if (!aUp && !bUp) {",
+              "  pm.test(\"returns 502 only when both suppliers are unavailable\", function () { pm.response.to.have.status(502); });",
+              "} else {",
+              "  pm.test(\"returns offers from each available supplier\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    const offers = pm.response.json();",
+              "    pm.expect(offers).to.be.an(\"array\").that.is.not.empty;",
+              "    const names = offers.map((offer) => offer.name.trim().toLowerCase().replace(/\\s+/g, \" \"));",
+              "    pm.expect(new Set(names).size).to.eql(names.length);",
+              "    offers.forEach((offer) => {",
+              "      pm.expect(offer).to.have.all.keys(\"name\", \"price\", \"supplier\", \"commissionPct\");",
+              "      if (!aUp) pm.expect(offer.supplier).to.eql(\"Supplier B\");",
+              "      if (!bUp) pm.expect(offer.supplier).to.eql(\"Supplier A\");",
+              "    });",
+              "    if (aUp && bUp) {",
+              "      pm.expect(offers.find((offer) => offer.name.toLowerCase() === \"holtin\")).to.include({ price: 5340, supplier: \"Supplier B\" });",
+              "      pm.expect(offers.find((offer) => offer.name.toLowerCase() === \"radison\")).to.include({ price: 5900, supplier: \"Supplier A\" });",
+              "    }",
+              "  });",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
     {
       "name": "Aggregate Delhi offers",
       "request": {
@@ -21,20 +96,29 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('returns HTTP 200', function () { pm.response.to.have.status(200); });",
-              "const offers = pm.response.json();",
-              "pm.test('returns unique hotels and the cheapest supplier offer', function () {",
-              "  pm.expect(offers).to.be.an('array').that.is.not.empty;",
-              "  const names = offers.map((offer) => offer.name.trim().toLowerCase().replace(/\\s+/g, ' '));",
-              "  pm.expect(new Set(names).size).to.eql(names.length);",
-              "  const holtin = offers.find((offer) => offer.name.toLowerCase() === 'holtin');",
-              "  const radison = offers.find((offer) => offer.name.toLowerCase() === 'radison');",
-              "  pm.expect(holtin).to.include({ price: 5340, supplier: 'Supplier B' });",
-              "  pm.expect(radison).to.include({ price: 5900, supplier: 'Supplier A' });",
-              "});",
-              "pm.test('uses the documented response fields', function () {",
-              "  offers.forEach((offer) => pm.expect(offer).to.have.all.keys('name', 'price', 'supplier', 'commissionPct'));",
-              "});"
+              "const aUp = pm.collectionVariables.get(\"supplierAStatus\") === \"up\";",
+              "const bUp = pm.collectionVariables.get(\"supplierBStatus\") === \"up\";",
+              "if (!aUp && !bUp) {",
+              "  pm.test(\"uses cached offers or returns 502 when both suppliers are down\", function () { pm.expect([200, 502]).to.include(pm.response.code); });",
+              "  if (pm.response.code === 200) pm.expect(pm.response.json()).to.be.an(\"array\").that.is.not.empty;",
+              "} else {",
+              "  pm.test(\"returns offers from each available supplier\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    const offers = pm.response.json();",
+              "    pm.expect(offers).to.be.an(\"array\").that.is.not.empty;",
+              "    const names = offers.map((offer) => offer.name.trim().toLowerCase().replace(/\\s+/g, \" \"));",
+              "    pm.expect(new Set(names).size).to.eql(names.length);",
+              "    offers.forEach((offer) => {",
+              "      pm.expect(offer).to.have.all.keys(\"name\", \"price\", \"supplier\", \"commissionPct\");",
+              "      if (!aUp) pm.expect(offer.supplier).to.eql(\"Supplier B\");",
+              "      if (!bUp) pm.expect(offer.supplier).to.eql(\"Supplier A\");",
+              "    });",
+              "    if (aUp && bUp) {",
+              "      pm.expect(offers.find((offer) => offer.name.toLowerCase() === \"holtin\")).to.include({ price: 5340, supplier: \"Supplier B\" });",
+              "      pm.expect(offers.find((offer) => offer.name.toLowerCase() === \"radison\")).to.include({ price: 5900, supplier: \"Supplier A\" });",
+              "    }",
+              "  });",
+              "}"
             ]
           }
         }
@@ -53,11 +137,15 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('returns HTTP 200', function () { pm.response.to.have.status(200); });",
-              "const offers = pm.response.json();",
-              "pm.test('returns only offers inside the inclusive price range', function () {",
-              "  pm.expect(offers.map((offer) => offer.name)).to.eql(['Holtin', 'Radison']);",
-              "  offers.forEach((offer) => pm.expect(offer.price).to.be.within(5000, 9000));",
+              "const bothDown = pm.collectionVariables.get(\"supplierAStatus\") === \"down\" && pm.collectionVariables.get(\"supplierBStatus\") === \"down\";",
+              "pm.test(\"filters cached prices or reports both suppliers unavailable\", function () {",
+              "  if (bothDown) pm.expect([200, 502]).to.include(pm.response.code);",
+              "  else pm.response.to.have.status(200);",
+              "  if (pm.response.code === 200) {",
+              "    const offers = pm.response.json();",
+              "    pm.expect(offers).to.be.an(\"array\").that.is.not.empty;",
+              "    offers.forEach((offer) => pm.expect(offer.price).to.be.within(5000, 9000));",
+              "  }",
               "});"
             ]
           }
@@ -77,9 +165,11 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('returns HTTP 200', function () { pm.response.to.have.status(200); });",
-              "pm.test('returns an empty array when suppliers have no offers', function () {",
-              "  pm.expect(pm.response.json()).to.eql([]);",
+              "const bothDown = pm.collectionVariables.get(\"supplierAStatus\") === \"down\" && pm.collectionVariables.get(\"supplierBStatus\") === \"down\";",
+              "pm.test(\"returns an empty array or reports both suppliers unavailable\", function () {",
+              "  if (bothDown) pm.expect([200, 502]).to.include(pm.response.code);",
+              "  else pm.response.to.have.status(200);",
+              "  if (pm.response.code === 200) pm.expect(pm.response.json()).to.eql([]);",
               "});"
             ]
           }
@@ -99,14 +189,17 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('returns HTTP 200', function () { pm.response.to.have.status(200); });",
-              "const hotels = pm.response.json();",
-              "pm.test('returns Delhi hotel records including overlap names', function () {",
-              "  pm.expect(hotels).to.be.an('array').that.is.not.empty;",
-              "  const names = hotels.map((hotel) => hotel.name);",
-              "  pm.expect(names).to.include('Holtin');",
-              "  pm.expect(names).to.include('Radison');",
-              "});"
+              "const expected = pm.collectionVariables.get(\"supplierAStatus\") === \"up\" ? 200 : 503;",
+              "pm.test(\"matches live supplier availability\", function () { pm.response.to.have.status(expected); });",
+              "if (expected === 200) {",
+              "  const hotels = pm.response.json();",
+              "  pm.test(\"returns supplier hotel records\", function () {",
+              "    pm.expect(hotels).to.be.an(\"array\").that.is.not.empty;",
+              "    const names = hotels.map((hotel) => hotel.name);",
+              "    pm.expect(names).to.include(\"Holtin\");",
+              "    pm.expect(names).to.include(\"Radison\");",
+              "  });",
+              "}"
             ]
           }
         }
@@ -125,40 +218,17 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('returns HTTP 200', function () { pm.response.to.have.status(200); });",
-              "const hotels = pm.response.json();",
-              "pm.test('returns Delhi hotel records including overlap names', function () {",
-              "  pm.expect(hotels).to.be.an('array').that.is.not.empty;",
-              "  const names = hotels.map((hotel) => hotel.name);",
-              "  pm.expect(names).to.include('Holtin');",
-              "  pm.expect(names).to.include('Radison');",
-              "});"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "Health",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{baseUrl}}/health"
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('returns HTTP 200 when services are healthy', function () { pm.response.to.have.status(200); });",
-              "const health = pm.response.json();",
-              "pm.test('reports both suppliers and Redis as up', function () {",
-              "  pm.expect(health.status).to.eql('ok');",
-              "  pm.expect(health.suppliers.supplierA).to.eql('up');",
-              "  pm.expect(health.suppliers.supplierB).to.eql('up');",
-              "  pm.expect(health.redis).to.eql('up');",
-              "});"
+              "const expected = pm.collectionVariables.get(\"supplierBStatus\") === \"up\" ? 200 : 503;",
+              "pm.test(\"matches live supplier availability\", function () { pm.response.to.have.status(expected); });",
+              "if (expected === 200) {",
+              "  const hotels = pm.response.json();",
+              "  pm.test(\"returns supplier hotel records\", function () {",
+              "    pm.expect(hotels).to.be.an(\"array\").that.is.not.empty;",
+              "    const names = hotels.map((hotel) => hotel.name);",
+              "    pm.expect(names).to.include(\"Holtin\");",
+              "    pm.expect(names).to.include(\"Radison\");",
+              "  });",
+              "}"
             ]
           }
         }

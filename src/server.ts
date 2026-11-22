@@ -6,7 +6,7 @@ import { config } from "./config";
 import { logger } from "./logger";
 import { connectRedis, redis } from "./redis";
 import { supplierRouter } from "./suppliers/routes";
-import { isSupplierEnabled } from "./suppliers/catalog";
+import { ValidationError } from "./errors";
 import type { CompareHotelsInput, HotelOffer, SupplierId } from "./types";
 
 const app = express();
@@ -20,24 +20,32 @@ app.use(supplierRouter);
 function parsePrice(value: unknown, name: string): number | null {
   if (value === undefined) return null;
   if (typeof value !== "string" || value.trim() === "") {
-    throw new Error(`Query parameter '${name}' must be a non-negative number`);
+    throw new ValidationError(`Query parameter '${name}' must be a non-negative number`);
   }
   const price = Number(value);
   if (!Number.isFinite(price) || price < 0) {
-    throw new Error(`Query parameter '${name}' must be a non-negative number`);
+    throw new ValidationError(`Query parameter '${name}' must be a non-negative number`);
   }
   return price;
 }
 
-function supplierStatus(supplier: SupplierId): "up" | "down" {
-  return isSupplierEnabled(supplier) ? "up" : "down";
+async function supplierStatus(supplier: SupplierId): Promise<"up" | "down"> {
+  const baseUrl = supplier === "A" ? config.supplierAUrl : config.supplierBUrl;
+  const url = new URL(`/supplier${supplier}/hotels`, baseUrl);
+  url.searchParams.set("city", "healthcheck");
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(2000) });
+    return response.ok ? "up" : "down";
+  } catch {
+    return "down";
+  }
 }
 
+app.get("/live", (_request, response) => response.status(200).json({ status: "ok" }));
+
 app.get("/health", async (_request, response) => {
-  const suppliers = {
-    supplierA: supplierStatus("A"),
-    supplierB: supplierStatus("B"),
-  };
+  const [supplierA, supplierB] = await Promise.all([supplierStatus("A"), supplierStatus("B")]);
+  const suppliers = { supplierA, supplierB };
   let redisStatus: "up" | "down" = "up";
   try {
     await redis.ping();
@@ -57,22 +65,31 @@ app.get("/api/hotels", async (request, response, next) => {
   try {
     const city = request.query.city;
     if (typeof city !== "string" || city.trim().length === 0) {
-      response.status(400).json({ error: "Query parameter 'city' is required" });
-      return;
+      throw new ValidationError("Query parameter 'city' is required");
     }
 
     const minPrice = parsePrice(request.query.minPrice, "minPrice");
     const maxPrice = parsePrice(request.query.maxPrice, "maxPrice");
     if (minPrice !== null && maxPrice !== null && minPrice > maxPrice) {
-      response.status(400).json({ error: "minPrice must be less than or equal to maxPrice" });
-      return;
+      throw new ValidationError("minPrice must be less than or equal to maxPrice");
     }
 
-    const input: CompareHotelsInput = { city: city.trim().toLowerCase(), minPrice, maxPrice };
+    const refreshParam = request.query.refresh;
+    if (refreshParam !== undefined && refreshParam !== "true" && refreshParam !== "false") {
+      throw new ValidationError("Query parameter 'refresh' must be true or false");
+    }
+
+    const input: CompareHotelsInput = {
+      city: city.trim().toLowerCase(),
+      minPrice,
+      maxPrice,
+      refresh: refreshParam === "true",
+    };
     if (!workflowClient) throw new Error("Temporal client is not ready");
     const handle = await workflowClient.workflow.start("compareHotelsWorkflow", {
       taskQueue: config.taskQueue,
       workflowId: `hotel-offers-${randomUUID()}`,
+      workflowExecutionTimeout: "30 seconds",
       args: [input],
     });
     const offers = (await handle.result()) as HotelOffer[];
@@ -94,7 +111,7 @@ app.use((_request, response) => {
 const errorHandler: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
   const message = error instanceof Error ? error.message : "Unexpected server error";
   logger.error({ err: error }, "Request failed");
-  const isValidationError = message.startsWith("Query parameter '") || message.startsWith("minPrice ");
+  const isValidationError = error instanceof ValidationError;
   response.status(isValidationError ? 400 : 502).json({
     error: isValidationError ? message : "Hotel offer comparison failed",
     detail: isValidationError ? undefined : message,

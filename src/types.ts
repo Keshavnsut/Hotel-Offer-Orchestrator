@@ -16,9 +16,11 @@ export interface CompareHotelsInput {
   city: string;
   minPrice: number | null;
   maxPrice: number | null;
+  refresh?: boolean;
 }
 
 export interface StoredOfferRequest extends CompareHotelsInput {
   requestId: string;
   hotels: HotelOffer[];
+  cacheable: boolean;
 }

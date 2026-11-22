@@ -5,6 +5,27 @@ import type { HotelOffer, StoredOfferRequest, SupplierHotel, SupplierId } from "
 
 const CACHE_TTL_SECONDS = 60 * 60;
 
+function cityCachePrefix(city: string): string {
+  return `hotel-offers:${city.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}`;
+}
+
+async function filterFromRedis(
+  priceIndexKey: string,
+  recordsKey: string,
+  minPrice: number | null,
+  maxPrice: number | null,
+): Promise<HotelOffer[]> {
+  const matchingNames = await redis.zRangeByScore(
+    priceIndexKey,
+    minPrice ?? "-inf",
+    maxPrice ?? "+inf",
+  );
+  if (matchingNames.length === 0) return [];
+
+  const records = await redis.hmGet(recordsKey, matchingNames);
+  return records.flatMap((record) => (record ? [JSON.parse(record) as HotelOffer] : []));
+}
+
 async function fetchSupplierHotels(supplier: SupplierId, city: string): Promise<SupplierHotel[]> {
   const baseUrl = supplier === "A" ? config.supplierAUrl : config.supplierBUrl;
   const url = new URL(`/supplier${supplier}/hotels`, baseUrl);
@@ -32,12 +53,22 @@ export async function fetchSupplierB(city: string): Promise<SupplierHotel[]> {
   return fetchSupplierHotels("B", city);
 }
 
+export async function getCachedOffers(input: {
+  city: string;
+  minPrice: number | null;
+  maxPrice: number | null;
+}): Promise<HotelOffer[] | null> {
+  const prefix = cityCachePrefix(input.city);
+  const cachedMarkerKey = `${prefix}:cached`;
+  if ((await redis.exists(cachedMarkerKey)) === 0) return null;
+  return filterFromRedis(`${prefix}:prices`, `${prefix}:records`, input.minPrice, input.maxPrice);
+}
+
 export async function replaceAndFilterOffers(input: StoredOfferRequest): Promise<HotelOffer[]> {
-  const cityKey = input.city.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
-  const requestKey = input.requestId.replace(/[^a-zA-Z0-9_-]+/g, "-");
-  const prefix = `hotel-offers:${cityKey}:${requestKey}`;
+  const prefix = cityCachePrefix(input.city);
   const priceIndexKey = `${prefix}:prices`;
   const recordsKey = `${prefix}:records`;
+  const cachedMarkerKey = `${prefix}:cached`;
   const uniqueOffers = new Map<string, HotelOffer>();
 
   for (const hotel of input.hotels) {
@@ -46,7 +77,7 @@ export async function replaceAndFilterOffers(input: StoredOfferRequest): Promise
 
   const hotels = [...uniqueOffers.entries()];
   const transaction = redis.multi();
-  transaction.del([priceIndexKey, recordsKey]);
+  transaction.del([priceIndexKey, recordsKey, cachedMarkerKey]);
 
   if (hotels.length > 0) {
     transaction.hSet(recordsKey, Object.fromEntries(hotels.map(([key, hotel]) => [key, JSON.stringify(hotel)])));
@@ -54,21 +85,14 @@ export async function replaceAndFilterOffers(input: StoredOfferRequest): Promise
     transaction.expire(recordsKey, CACHE_TTL_SECONDS);
     transaction.expire(priceIndexKey, CACHE_TTL_SECONDS);
   }
+  if (input.cacheable) transaction.set(cachedMarkerKey, "complete", { EX: CACHE_TTL_SECONDS });
 
   await transaction.exec();
 
   // The sorted set is the price index; range filtering is performed by Redis.
-  const matchingNames = await redis.zRangeByScore(
-    priceIndexKey,
-    input.minPrice ?? "-inf",
-    input.maxPrice ?? "+inf",
-  );
-  if (matchingNames.length === 0) return [];
-
-  const records = await redis.hmGet(recordsKey, matchingNames);
-  const results = records.flatMap((record) => (record ? [JSON.parse(record) as HotelOffer] : []));
+  const results = await filterFromRedis(priceIndexKey, recordsKey, input.minPrice, input.maxPrice);
   logger.info(
-    { city: input.city, requestId: input.requestId, total: hotels.length, returned: results.length },
+    { city: input.city, requestId: input.requestId, total: hotels.length, returned: results.length, cacheable: input.cacheable },
     "Stored and filtered hotel offers in Redis",
   );
   return results;
